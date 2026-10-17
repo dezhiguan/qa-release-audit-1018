@@ -198,7 +198,7 @@ def _extract_run_id(text: str) -> Optional[str]:
     patterns = [
         r'(?:runId|CI\s+runId|CI\s+run|CI运行ID|CI运行id|CI运行)[^\w\d]*(?:[:=\s]+)(\d+)',
         r'(?:run|runId|ID)[^\w\d]*(?:[:=\s]+)(\d+)',
-        r'(?<!\d)(\d+)(?=\D*$|\s*[，。、；：\-\)\]}\s*$)'  # trailing digits not followed by more digits
+        r'(?<!\d)(\d+)(?=[^\w\d]|$)'  # digits bounded by non-alnum or end
     ]
     for p in patterns:
         m = re.search(p, text, re.I | re.U)
@@ -216,7 +216,8 @@ def _extract_pr_number(text: str) -> Optional[str]:
         r'#(\d+)',
         r'PR\s*(?:[:=#\s]+)?(\d+)',
         r'编号\s*[:=\s]*(\d+)',
-        r'PR(\d+)(?![a-zA-Z0-9])'  # PR123 → 123, but not PR123abc
+        r'PR(\d+)(?![a-zA-Z0-9])',  # PR123 → 123, but not PR123abc
+        r'PR[^\w\d]*(\d+)(?=[^\w\d]|$)'  # PR987654321 → 987654321, tight boundary
     ]
     for p in patterns:
         m = re.search(p, text, re.I | re.U)
@@ -233,7 +234,9 @@ def _extract_job_id(text: str) -> Optional[str]:
         r'(?:jobId|task|任务|研发任务|job|Task|DF)[^\w\d]*(?:[:=\s]+)(DF-\d+)',
         r'(DF-\d+)',
         r'DF[-\s：:](\d+)',
-        r'(DF)(?:[-\s：:])(\d+)'  # capture DF + digits separately then join
+        r'(DF)(?:[-\s：:])(\d+)',  # capture DF + digits separately then join
+        r'任务[^\w\d]*(DF-\d+)(?=[^\w\d]|$)',
+        r'DF(?=[^-\d])[^\w\d]*(\d+)(?=[^\w\d]|$)'  # DF1234 → DF-1234 (tight)
     ]
     for p in patterns:
         m = re.search(p, text, re.I | re.U)
