@@ -33,9 +33,13 @@ async def execute(data: dict, ctx) -> dict:
             repo=repo,
             runId=run_id
         )
-        if not isinstance(ci_log_res, dict) or not ci_log_res.get('log'):
-            return _blocked('ci.log.fetch returned empty or invalid log')
-        ci_log = ci_log_res['log']
+        if not isinstance(ci_log_res, dict):
+            return _blocked('ci.log.fetch returned non-dict')
+        if ci_log_res.get('logsUnavailable') is True:
+            return _blocked('ci.log.fetch: logsUnavailable=true — raw log unavailable')
+        if not isinstance(ci_log_res.get('log'), str) or not ci_log_res['log'].strip():
+            return _blocked('ci.log.fetch returned empty or non-string log')
+        ci_log = ci_log_res['log'].strip()
     except Exception:
         return _blocked('ci.log.fetch failed')
 
@@ -77,7 +81,8 @@ async def execute(data: dict, ctx) -> dict:
     evidence = {
         "ci_log": ci_log[:2048] + "..." if len(ci_log) > 2048 else ci_log,
         "pr_diff": pr_diff[:2048] + "..." if len(pr_diff) > 2048 else pr_diff,
-        "job_records": job_records[:5]
+        "job_records": job_records[:5],
+        "delegate_results": delegate_results
     }
 
     # Delegate to two registered sub-agents
@@ -111,7 +116,7 @@ async def execute(data: dict, ctx) -> dict:
         evidence='verified read-only evidence from ci.log.fetch, git.pr.diff, devflow.job.read'
     )
 
-    # User message contains actual values as JSON
+    # User message contains actual values as JSON — includes delegate_results for model visibility
     user_msg = json.dumps({
         'input': text,
         'evidence': evidence
