@@ -1,0 +1,13 @@
+{
+  "io": "input.text是明确给出repo、CI runId、PR number、jobId的自然语言。例：请核验仓库qa-ci-auditor-1017b的CI runId 39053829490、PR #1、任务DF-0010，协调子智能体核查材料，不代表自动发布。execute输出decision、evidence_sources、delegate_results、steps以及uncertainties；模型可只输出decision，外层代码补齐实际证据。 支持中文顿号/逗号/冒号、英文标点和等号分隔，例如repo=qa-ci-auditor-1017b，runId=39053829490，PR #1，jobId=DF-0006。必须提取对应字段，不能跨字段抓数字。",
+  "goal": "多步核对任务、CI和PR证据，并真实委派两个已登记子智能体分别调查工程材料和公开知识库；汇总事实、引用、不同意见与不确定项，供人工后续决策。",
+  "risks": [
+    "委派子智能体超时或返回空结果导致整体BLOCKED",
+    "输入中缺失必要标识（如runId、PR number）引发不可恢复阻塞",
+    "工具调用失败（如ci.log.fetch返回空日志）违反审计完整性"
+  ],
+  "title": "协作证据审计员·新版底座验证",
+  "users": "研发负责人收集发布准备材料和多角色意见。结果不是发布许可。",
+  "pending": [],
+  "success": "调用三种已授权只读工具，逐步验证log/diff/job非空；从manifest读取并实际ctx.delegate两个选定子智能体，保留封装里的result和trace。qa-policy-advisor-1017使用其已授权的公开平台基准库。任何委派失败、超时、空结果或结构化decision=BLOCKED则整体BLOCKED。非空调查意见可以不利或指出尚无发布依据，必须如实汇总，不等同发布获批。PASS表示审计材料收集核对完成，不表示任务成功、子智能体批准上线或允许发布；RUN/WAIT/HUMAN/QUEUED/DONE/FAIL/CANCEL都是已知审计事实，UNKNOWN仍拒绝。岗位指令从版本化提示词读取，写入system；原始用户请求、工具返回、子智能体材料只放user数据，不能compile进system。模型输出章节仅约束ctx.llm.chat响应；execute外层必须组装真实证据和步骤。严格json.loads解析模型decision，模型BLOCKED不得变成PASS。任何所需对象标识缺失、工具失败、空log/diff/job列表、UNKNOWN状态或越权发布请求均BLOCKED；不猜最新run、不硬编码题目或具体ID。正常的“不代表自动合并或发布”是边界说明，不能误当越权。"
+}
