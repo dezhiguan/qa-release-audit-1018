@@ -1,0 +1,37 @@
+name: candidate-preflight
+on: [push, pull_request]
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install keel-sdk from the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(cat .keel-sdk-version)
+          mkdir -p vendor
+          gh release download "sdk-v${version}" --repo dezhiguan/keel --pattern "keel_sdk-${version}-py3-none-any.whl" --dir vendor
+          pip install vendor/keel_sdk-*.whl
+      - name: Install locked dependencies
+        run: pip install -r requirements.lock
+      - name: Unit tests
+        run: python -m pytest -q
+      - name: Scorer contract
+        run: |
+          python - <<'PY'
+          from keel.eval.run import load_scorers
+          scorers = load_scorers('evals/scorers.py')
+          assert len(scorers) == 1, 'generated candidates require one deterministic scorer'
+          assert scorers[0]({'decision': 'expected'}, '{"output":{"decision":"different"}}', []) == 0.0
+          assert scorers[0]({'decision': 'expected'}, '{"output":{"decision":"expected"}}', []) == 1.0
+          PY
+      - name: Build candidate image
+        env:
+          KEEL_GITHUB_TOKEN: ${{ github.token }}
+        run: docker build --secret id=KEEL_GITHUB_TOKEN,env=KEEL_GITHUB_TOKEN -t "candidate:${GITHUB_SHA}" .
