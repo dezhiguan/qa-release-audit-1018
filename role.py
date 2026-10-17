@@ -173,40 +173,50 @@ def _blocked(reason: str) -> dict:
 
 
 def _extract_repo(text: str) -> Optional[str]:
+    # Match repo slug: ASCII letters/digits/hyphens only, min 3 chars, must contain '-', bounded by non-alnum or start/end
+    # Support: "仓库qa-ci-auditor-1017b", "repo=qa-ci-auditor-1017b", "for qa-ci-auditor-1017b CI"
     patterns = [
-        r'(?:repo|repository|仓库)[^\w\d]*(?:[:=\s]+)([\w\-]+)',
-        r'(?:in|of|for)\s+([\w\-]+)(?:\s+(?:CI|run|PR|task|job|任务|研发任务|CI运行|PR编号))?\b',
-        r'^[^\w\d]*([\w\-]+)(?:\s+(?:CI|run|PR|task|job|任务|研发任务|CI运行|PR编号))?\b'
+        # Explicit label + separator + slug
+        r'(?:repo|repository|仓库)[^\w\d]*(?:[:=\s]+)([a-zA-Z0-9][a-zA-Z0-9\-]{2,}[a-zA-Z0-9])',
+        # Slug after preposition, bounded by non-alnum or end
+        r'(?:in|of|for|使用|属于|来自|对应|位于|在)[^\w\d]+([a-zA-Z0-9][a-zA-Z0-9\-]{2,}[a-zA-Z0-9])(?=[^\w\d]|$)',
+        # Standalone slug at start or after whitespace, bounded strictly
+        r'(?:^|\s+)([a-zA-Z0-9][a-zA-Z0-9\-]{2,}[a-zA-Z0-9])(?=[^\w\d]|$)'
     ]
     for p in patterns:
-        m = re.search(p, text, re.I | re.U)
+        m = re.search(p, text, re.U)
         if m:
-            candidate = m.group(1).strip()
-            if candidate and len(candidate) >= 3 and '-' in candidate:
+            candidate = m.group(1)
+            if candidate and '-' in candidate:
                 return candidate
     return None
 
 
 def _extract_run_id(text: str) -> Optional[str]:
+    # Match runId: digits only, preceded by runId/CI run/CI运行ID/etc., or standalone after separator
+    # Supports: "runId39053829490", "CI runId 39053829490", "CI运行ID：39053829490"
     patterns = [
-        r'(?:runId|CI\s+runId|CI\s+run|CI运行ID|CI运行id)[^\w\d]*(?:[:=\s]+)(\d+)',
-        r'(?:CI|CI运行)\s+(?:run|runId|ID)[^\w\d]*(?:[:=\s]+)(\d+)',
-        r'run\s*[:=\s]+(\d+)',
-        r'runId\s*[:=\s]+(\d+)'
+        r'(?:runId|CI\s+runId|CI\s+run|CI运行ID|CI运行id|CI运行)[^\w\d]*(?:[:=\s]+)(\d+)',
+        r'(?:run|runId|ID)[^\w\d]*(?:[:=\s]+)(\d+)',
+        r'(?<!\d)(\d+)(?=\D*$|\s*[，。、；：\-\)\]}\s*$)'  # trailing digits not followed by more digits
     ]
     for p in patterns:
         m = re.search(p, text, re.I | re.U)
         if m:
-            return m.group(1)
+            num_str = m.group(1)
+            if num_str.isdigit() and len(num_str) >= 6:  # realistic runId length
+                return num_str
     return None
 
 
 def _extract_pr_number(text: str) -> Optional[str]:
+    # Match PR number: positive integer, supports "PR#1", "PR 1", "#1", "PR编号：1", "PR号=1", "PR1"
     patterns = [
-        r'(?:PR|PR编号|PR号|Pull Request)[^\w\d]*(?:[:=#\s]+)(\d+)',
+        r'(?:PR|PR编号|PR号|Pull Request|PR运行|PR提交)[^\w\d]*(?:[:=#\s]+)(\d+)',
         r'#(\d+)',
-        r'PR\s+(\d+)',
-        r'编号\s*[:=\s]*(\d+)'
+        r'PR\s*(?:[:=#\s]+)?(\d+)',
+        r'编号\s*[:=\s]*(\d+)',
+        r'PR(\d+)(?![a-zA-Z0-9])'  # PR123 → 123, but not PR123abc
     ]
     for p in patterns:
         m = re.search(p, text, re.I | re.U)
@@ -218,17 +228,21 @@ def _extract_pr_number(text: str) -> Optional[str]:
 
 
 def _extract_job_id(text: str) -> Optional[str]:
+    # Match jobId: DF-<digits>, supports "任务DF-0010", "jobId=DF-0010", "DF-0010", "DF 0010", "DF：0010"
     patterns = [
-        r'(?:jobId|task|任务|研发任务|job|Task)[^\w\d]*(?:[:=\s]+)(DF-\d+)',
+        r'(?:jobId|task|任务|研发任务|job|Task|DF)[^\w\d]*(?:[:=\s]+)(DF-\d+)',
         r'(DF-\d+)',
-        r'(?:DF[-\s]\d+)'
+        r'DF[-\s：:](\d+)',
+        r'(DF)(?:[-\s：:])(\d+)'  # capture DF + digits separately then join
     ]
     for p in patterns:
         m = re.search(p, text, re.I | re.U)
         if m:
-            candidate = m.group(1) if m.groups() else m.group(0)
-            if candidate and 'DF-' in candidate:
-                cleaned = re.sub(r'\s+', '', candidate).replace(' ', '').replace('　', '')
-                if re.match(r'^DF-\d+$', cleaned):
-                    return cleaned
+            if len(m.groups()) == 2 and m.group(1) == 'DF' and m.group(2).isdigit():
+                candidate = f'DF-{m.group(2)}'
+            else:
+                candidate = m.group(1) if m.groups() else m.group(0)
+            cleaned = re.sub(r'[\s　：:]+', '-', candidate).replace('--', '-').strip('-')
+            if re.match(r'^DF-\d+$', cleaned):
+                return cleaned
     return None

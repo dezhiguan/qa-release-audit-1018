@@ -33,3 +33,8 @@ keel dev
 
 模型生成的研发岗位代码候选，需通过隔离沙箱、人工 PR review、评测门禁和发布审批。
 多智能体项目运行时需配置 KEEL_DELEGATE_ROUTES，按 agent.yaml 中的子智能体名称映射其登记 endpoint 和 env。例如 `{"child-name":{"endpoint":"http://child-service:8000","env":"dev"}}`。Keel 可信流水线会自动注入；独立部署时由开发者配置，缺少绑定会明确失败。
+
+## 生产任务 DF-0013
+
+模型生成的研发岗位代码候选，需通过隔离沙箱、人工 PR review、评测门禁和发布审批。
+多智能体项目运行时需配置 KEEL_DELEGATE_ROUTES，按 agent.yaml 中的子智能体名称映射其登记 endpoint 和 env。例如 `{"child-name":{"endpoint":"http://child-service:8000","env":"dev"}}`。Keel 可信流水线会自动注入；独立部署时由开发者配置，缺少绑定会明确失败。
