@@ -26,6 +26,9 @@ def _normal_input():
 
 
 class Prompt:
+    name = "platform-contract/role"
+    version = 1
+
     def compile(self, **values):
         return json.dumps(values, ensure_ascii=False, default=str)
 
@@ -63,6 +66,9 @@ class Llm:
         self.messages = []
 
     async def chat(self, messages, **kwargs):
+        prompt = kwargs.get("prompt")
+        assert getattr(prompt, "name", None) == Prompt.name and getattr(prompt, "version", None) == Prompt.version, \
+            "Model call must retain the versioned Prompt object; compiled text has no prompt metadata"
         self.messages.append(messages)
         return self.response
 

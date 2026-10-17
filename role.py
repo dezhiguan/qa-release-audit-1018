@@ -77,14 +77,6 @@ async def execute(data: dict, ctx) -> dict:
     except Exception:
         return _blocked('devflow.job.read failed')
 
-    # Assemble evidence
-    evidence = {
-        "ci_log": ci_log[:2048] + "..." if len(ci_log) > 2048 else ci_log,
-        "pr_diff": pr_diff[:2048] + "..." if len(pr_diff) > 2048 else pr_diff,
-        "job_records": job_records[:5],
-        "delegate_results": delegate_results
-    }
-
     # Delegate to two registered sub-agents
     allowed_delegates = list(ctx.manifest.spec.delegates or [])
     if len(allowed_delegates) < 2:
@@ -108,6 +100,14 @@ async def execute(data: dict, ctx) -> dict:
             })
         except Exception as e:
             return _blocked(f'delegate {name} failed: {str(e)}')
+
+    # Assemble evidence — AFTER delegate_results is defined
+    evidence = {
+        "ci_log": ci_log[:2048] + "..." if len(ci_log) > 2048 else ci_log,
+        "pr_diff": pr_diff[:2048] + "..." if len(pr_diff) > 2048 else pr_diff,
+        "job_records": job_records[:5],
+        "delegate_results": delegate_results
+    }
 
     # Compile prompt — only static field descriptions, NO dynamic input/evidence
     prompt = await ctx.prompt('role')
