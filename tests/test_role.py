@@ -79,7 +79,7 @@ async def test_execute_delegate_blocked_final_blocked():
     # Tools succeed
     ctx.tools.call = AsyncMock()
     ctx.tools.call.side_effect = [
-        {'log': 'log'},
+        {'log': 'log', 'logsUnavailable': False},
         {'diff': 'diff'},
         [{'status': 'DONE'}]
     ]
@@ -111,7 +111,7 @@ async def test_execute_llm_returns_invalid_json_blocked():
     
     ctx.tools.call = AsyncMock()
     ctx.tools.call.side_effect = [
-        {'log': 'log'},
+        {'log': 'log', 'logsUnavailable': False},
         {'diff': 'diff'},
         [{'status': 'DONE'}]
     ]
@@ -142,7 +142,7 @@ async def test_execute_llm_returns_pass_but_with_explanation_blocked():
     
     ctx.tools.call = AsyncMock()
     ctx.tools.call.side_effect = [
-        {'log': 'log'},
+        {'log': 'log', 'logsUnavailable': False},
         {'diff': 'diff'},
         [{'status': 'DONE'}]
     ]

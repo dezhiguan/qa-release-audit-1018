@@ -13,7 +13,7 @@ async def execute(data: dict, ctx) -> dict:
     pr_number = _extract_pr_number(text)
     job_id = _extract_job_id(text)
 
-    # Validate required fields
+    # Validate required fields — strict, no fallback
     missing = []
     if not repo:
         missing.append('repo')
@@ -174,16 +174,23 @@ def _blocked(reason: str) -> dict:
 
 def _extract_repo(text: str) -> Optional[str]:
     # Match repo slug: ASCII letters/digits/hyphens only, min 3 chars, must contain '-', bounded by non-alnum or start/end
-    # Support: "仓库qa-ci-auditor-1017b", "repo=qa-ci-auditor-1017b", "for qa-ci-auditor-1017b CI"
-    patterns = [
-        # Explicit label + separator + slug
+    # Supports tight adjacency: "仓库qa-ci-auditor-1017b", "repo=qa-ci-auditor-1017b", "CI runId987654321、PR#17、任务DF-1234" → extract qa-ci-auditor-1017b
+    # Avoid eating Chinese prefixes: match only if preceded by boundary (non-alnum or start) and followed by boundary (non-alnum or end)
+    pattern = r'(?<!\w)([a-zA-Z0-9][a-zA-Z0-9\-]{2,}[a-zA-Z0-9])(?![a-zA-Z0-9])'
+    candidates = re.findall(pattern, text, re.U)
+    for cand in candidates:
+        if '-' in cand and len(cand) >= 3:
+            # Verify it's *intended* as repo: check proximity to known repo-indicating tokens
+            context_start = max(0, text.find(cand) - 20)
+            context = text[context_start:text.find(cand)+len(cand)+20].lower()
+            if any(kw in context for kw in ['仓库', 'repo', 'repository', 'in ', 'for ', 'of ', '使用', '属于', '对应']):
+                return cand
+    # Fallback: try explicit labels first
+    explicit_patterns = [
         r'(?:repo|repository|仓库)[^\w\d]*(?:[:=\s]+)([a-zA-Z0-9][a-zA-Z0-9\-]{2,}[a-zA-Z0-9])',
-        # Slug after preposition, bounded by non-alnum or end
-        r'(?:in|of|for|使用|属于|来自|对应|位于|在)[^\w\d]+([a-zA-Z0-9][a-zA-Z0-9\-]{2,}[a-zA-Z0-9])(?=[^\w\d]|$)',
-        # Standalone slug at start or after whitespace, bounded strictly
-        r'(?:^|\s+)([a-zA-Z0-9][a-zA-Z0-9\-]{2,}[a-zA-Z0-9])(?=[^\w\d]|$)'
+        r'(?:in|of|for|使用|属于|来自|对应|位于|在)[^\w\d]+([a-zA-Z0-9][a-zA-Z0-9\-]{2,}[a-zA-Z0-9])(?=[^\w\d]|$)'
     ]
-    for p in patterns:
+    for p in explicit_patterns:
         m = re.search(p, text, re.U)
         if m:
             candidate = m.group(1)
@@ -193,34 +200,44 @@ def _extract_repo(text: str) -> Optional[str]:
 
 
 def _extract_run_id(text: str) -> Optional[str]:
-    # Match runId: digits only, preceded by runId/CI run/CI运行ID/etc., or standalone after separator
-    # Supports: "runId39053829490", "CI runId 39053829490", "CI运行ID：39053829490"
+    # Match runId: digits only, supports tight adjacency like "runId39053829490", "CI runId987654321", "CI运行ID：987654321"
+    # Prioritize labeled matches; fallback to bounded digits only if labeled fails
     patterns = [
-        r'(?:runId|CI\s+runId|CI\s+run|CI运行ID|CI运行id|CI运行)[^\w\d]*(?:[:=\s]+)(\d+)',
-        r'(?:run|runId|ID)[^\w\d]*(?:[:=\s]+)(\d+)',
-        r'(?<!\d)(\d+)(?=[^\w\d]|$)'  # digits bounded by non-alnum or end
+        # Labeled: handles Chinese/English labels + optional separator
+        r'(?:runId|CI\s*runId|CI\s*run|CI运行ID|CI运行id|CI运行)[^\w\d]*(?:[:=\s\u3000\uff1a\uff1d]+)(\d+)',
+        r'(?:run|runId|ID)[^\w\d]*(?:[:=\s\u3000\uff1a\uff1d]+)(\d+)',
+        # Tight adjacency: "runId123456" → 123456, but NOT "abc123456def"
+        r'(?i)runId(\d+)(?=[^a-zA-Z0-9]|$)',
+        r'(?i)CI\s*run\s*(\d+)(?=[^a-zA-Z0-9]|$)',
+        r'(?i)CI运行ID[\s\u3000：:](\d+)(?=[^a-zA-Z0-9]|$)',
+        # Final fallback: isolated digit string ≥6 chars, bounded
+        r'(?<!\d)(\d{6,})(?![a-zA-Z0-9])'
     ]
     for p in patterns:
-        m = re.search(p, text, re.I | re.U)
+        m = re.search(p, text, re.U)
         if m:
             num_str = m.group(1)
-            if num_str.isdigit() and len(num_str) >= 6:  # realistic runId length
+            if num_str.isdigit():
                 return num_str
     return None
 
 
 def _extract_pr_number(text: str) -> Optional[str]:
-    # Match PR number: positive integer, supports "PR#1", "PR 1", "#1", "PR编号：1", "PR号=1", "PR1"
+    # Match PR number: positive integer, supports tight adjacency like "PR#1", "PR1", "PR编号：1", "#1", "PR号=1"
+    # Critical: handle "PR#1" and "PR1" without space — avoid matching "PR123abc"
     patterns = [
-        r'(?:PR|PR编号|PR号|Pull Request|PR运行|PR提交)[^\w\d]*(?:[:=#\s]+)(\d+)',
+        # Labeled with separator
+        r'(?:PR|PR编号|PR号|Pull Request|PR运行|PR提交|PR号|PR编号)[^\w\d]*(?:[:=#\s\u3000\uff1a\uff1d]+)(\d+)',
         r'#(\d+)',
-        r'PR\s*(?:[:=#\s]+)?(\d+)',
-        r'编号\s*[:=\s]*(\d+)',
-        r'PR(\d+)(?![a-zA-Z0-9])',  # PR123 → 123, but not PR123abc
-        r'PR[^\w\d]*(\d+)(?=[^\w\d]|$)'  # PR987654321 → 987654321, tight boundary
+        r'编号\s*[:=\s\u3000\uff1a\uff1d]*(\d+)',
+        # Tight adjacency: "PR#1", "PR1", "PR123" — must be followed by boundary
+        r'(?i)PR[#\s\u3000：:](\d+)(?=[^a-zA-Z0-9]|$)',
+        r'(?i)PR(\d+)(?=[^a-zA-Z0-9]|$)',
+        # Fallback: isolated digits after # or in context
+        r'(?<!\d)(\d+)(?=[^a-zA-Z0-9]|$)'
     ]
     for p in patterns:
-        m = re.search(p, text, re.I | re.U)
+        m = re.search(p, text, re.U)
         if m:
             num_str = m.group(1)
             if num_str.isdigit() and int(num_str) > 0:
@@ -229,23 +246,26 @@ def _extract_pr_number(text: str) -> Optional[str]:
 
 
 def _extract_job_id(text: str) -> Optional[str]:
-    # Match jobId: DF-<digits>, supports "任务DF-0010", "jobId=DF-0010", "DF-0010", "DF 0010", "DF：0010"
+    # Match jobId: DF-<digits>, supports tight adjacency like "任务DF-0010", "jobId=DF-0010", "DF-0010", "DF0010", "DF：0010"
+    # Prioritize labeled matches; handle "DF0010" → "DF-0010"
     patterns = [
-        r'(?:jobId|task|任务|研发任务|job|Task|DF)[^\w\d]*(?:[:=\s]+)(DF-\d+)',
-        r'(DF-\d+)',
-        r'DF[-\s：:](\d+)',
-        r'(DF)(?:[-\s：:])(\d+)',  # capture DF + digits separately then join
-        r'任务[^\w\d]*(DF-\d+)(?=[^\w\d]|$)',
-        r'DF(?=[^-\d])[^\w\d]*(\d+)(?=[^\w\d]|$)'  # DF1234 → DF-1234 (tight)
+        # Labeled with separator
+        r'(?:jobId|task|任务|研发任务|job|Task|DF)[^\w\d]*(?:[:=\s\u3000\uff1a\uff1d]+)(DF-\d+)',
+        r'(?:jobId|task|任务|研发任务|job|Task|DF)[^\w\d]*(?:[:=\s\u3000\uff1a\uff1d]+)(DF)(?:[-\s\u3000：:]+)(\d+)',
+        # Tight adjacency: "DF-0010", "DF0010", "DF：0010"
+        r'(DF)-(\d+)',
+        r'(DF)(\d{4,})(?=[^a-zA-Z0-9]|$)',
+        r'(DF)[\s\u3000：:](\d+)(?=[^a-zA-Z0-9]|$)',
+        # Final fallback: standalone DF-\d+
+        r'(DF-\d+)'
     ]
     for p in patterns:
         m = re.search(p, text, re.I | re.U)
         if m:
-            if len(m.groups()) == 2 and m.group(1) == 'DF' and m.group(2).isdigit():
-                candidate = f'DF-{m.group(2)}'
-            else:
-                candidate = m.group(1) if m.groups() else m.group(0)
-            cleaned = re.sub(r'[\s　：:]+', '-', candidate).replace('--', '-').strip('-')
-            if re.match(r'^DF-\d+$', cleaned):
-                return cleaned
+            if len(m.groups()) == 2:
+                prefix, digits = m.group(1), m.group(2)
+                if prefix.upper() == 'DF' and digits.isdigit():
+                    return f'DF-{digits}'
+            elif m.group(0).startswith('DF-') and re.match(r'^DF-\d+$', m.group(0)):
+                return m.group(0)
     return None
